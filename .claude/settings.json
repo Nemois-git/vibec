@@ -1,0 +1,12 @@
+{
+  "enableAllProjectMcpServers": true,
+  "permissions": {
+    "allow": [
+      "mcp__delegate__delegate_run",
+      "mcp__delegate__delegate_wait",
+      "mcp__delegate__delegate_status",
+      "mcp__delegate__delegate_interrupt",
+      "mcp__delegate__delegate_doctor"
+    ]
+  }
+}

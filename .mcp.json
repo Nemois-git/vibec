@@ -1,0 +1,8 @@
+{
+  "mcpServers": {
+    "delegate": {
+      "command": "python3",
+      "args": ["scripts/delegate_mcp.py"]
+    }
+  }
+}

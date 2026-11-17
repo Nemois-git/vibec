@@ -1,0 +1,6 @@
+# delegate run logs (per-machine, not for VCS)
+.delegate/
+# logs written before the rename to delegate
+.vibe-delegate/
+__pycache__/
+.DS_Store
