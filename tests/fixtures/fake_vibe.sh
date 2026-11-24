@@ -3,6 +3,8 @@
 # Licensed under the MIT License; see LICENSE at the repository root.
 # SPDX-License-Identifier: MIT
 # Fake vibe CLI for coverage driving: honours -p, --output-dir, --resume; SLEEP tasks block until SIGTERM.
+# Records the argv it received to <output-dir>/argv.txt so tests can assert which flags reached it.
+orig_args=("$@")
 out_dir=""; prompt=""; resume=""
 while [[ $# -gt 0 ]]; do
   case "$1" in
@@ -13,6 +15,7 @@ while [[ $# -gt 0 ]]; do
     *) shift ;;
   esac
 done
+[[ -n "$out_dir" ]] && printf '%s\n' "${orig_args[@]}" > "$out_dir/argv.txt"
 sid="${resume:-fake-session-1}"
 export_run() {
   printf '{"session_id":"%s","cost_usd":0.01,"usage":{"tokens":1},"outcome":"%s","exit_code":%s,"stop_reason":"end_turn","vibe_version":"0.0.0-fake"}\n' "$sid" "$1" "$2" > "$out_dir/export.json"

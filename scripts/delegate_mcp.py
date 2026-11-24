@@ -244,7 +244,6 @@ DELEGATE_SCHEMA = {
         "task": {"type": "string", "description": "Self-contained task prompt for Vibe: goal, file paths, constraints, acceptance criteria. Vibe cannot see the Claude Code conversation."},
         "background": {"type": "boolean", "description": "If true, return immediately with run/run_dir/pid/alias and collect the result later with delegate_wait or delegate_status. Default false (blocks until the run ends)."},
         "alias": {"type": "string", "description": "Human-friendly name for this run. Registered in .delegate/aliases.json with run/pid/status; delegate_wait, delegate_interrupt and delegate_status accept the alias in place of the run timestamp."},
-        "mode": {"type": "string", "enum": ["smart", "auto"], "description": "How Vibe approves its own tool calls: smart (default; a classifier auto-runs calls it judges safe) or auto (approve every call; trusted tasks only). DELEGATE_MODE in config or env overrides the default."},
         "model": {"type": "string", "description": "Vibe model alias (--model) from your ~/.vibe/config.toml [[models]]. Empty = Vibe default routing. Set it for new runs; leave it empty when resuming with session_id."},
         "agent": {"type": "string", "description": "Vibe agent profile (--agent), e.g. a bounded profile from ~/.vibe/agents/."},
         "session_id": {"type": "string", "description": "Resume this existing Vibe session (--resume <id>) to finish or make a small follow-up on that same run. Do not reuse a session for unrelated tasks; start a new delegation without session_id instead. Get it from a previous delegate_run result, delegate_status, or the run's export.json."},
@@ -260,7 +259,7 @@ DELEGATE_SCHEMA = {
 TOOLS = [
     {
         "name": "delegate_run",
-        "description": "WHEN: a self-contained implementation or review task can be done by the Vibe agent instead of you. DO NOT use it for work that needs this conversation's context, or for a single edit you can make yourself. HOW: pass `task` (plus optional mode, model, agent, limits). This call blocks until the run ends and returns Vibe's answer and run metadata; background=true returns at once with run, run_dir, pid and alias, collected later with delegate_wait. CLI: {CLI} delegate \"<task>\" [--background] [--alias NAME].",
+        "description": "WHEN: a self-contained implementation or review task can be done by the Vibe agent instead of you. DO NOT use it for work that needs this conversation's context, or for a single edit you can make yourself. HOW: pass `task` (plus optional model, agent, limits). This call blocks until the run ends and returns Vibe's answer and run metadata; background=true returns at once with run, run_dir, pid and alias, collected later with delegate_wait. CLI: {CLI} delegate \"<task>\" [--background] [--alias NAME].",
         "inputSchema": DELEGATE_SCHEMA,
     },
     {
@@ -322,7 +321,7 @@ def read_export(run_dir) -> dict:
 def build_cmd(args: dict, task: str, run_id: str = None) -> list:
     cmd = ["bash", str(WRAPPER)]
     for key, flag in (
-        ("mode", "--mode"), ("model", "--model"), ("agent", "--agent"), ("session_id", "--resume"), ("alias", "--alias"),
+        ("model", "--model"), ("agent", "--agent"), ("session_id", "--resume"), ("alias", "--alias"),
         ("max_turns", "--max-turns"), ("max_price", "--max-price"),
         ("max_tokens", "--max-tokens"), ("time_limit", "--time-limit"), ("output", "--output"),
     ):
@@ -416,6 +415,8 @@ def call_delegate(args: dict) -> dict:
     task = args.get("task")
     if not task:
         return err("delegate_run: 'task' is required")
+    if args.get("mode") not in (None, "", "smart"):
+        return err("delegate_run: 'mode' was removed; delegated runs always use --smart-approve")
     if args.get("background"):
         return start_background(args, task)
 
@@ -658,12 +659,11 @@ def cli(argv: list) -> int:
     )
     sub = p.add_subparsers(dest="command", required=True)
 
-    d = sub.add_parser("delegate", help="run one task via vibe -p (same as MCP delegate_run)")
+    d = sub.add_parser("delegate", help="run one task via vibe -p (same as MCP delegate_run)", allow_abbrev=False)
     d.add_argument("task", help="self-contained task prompt")
     d.add_argument("--background", action="store_true")
     d.add_argument("--alias")
     d.add_argument("--session-id")
-    d.add_argument("--mode", choices=["smart", "auto"])
     d.add_argument("--model")
     d.add_argument("--agent")
     d.add_argument("--max-turns", type=int)
@@ -688,7 +688,7 @@ def cli(argv: list) -> int:
     ns = p.parse_args(argv)
     if ns.command == "delegate":
         args = {"task": ns.task}
-        for key in ("background", "alias", "mode", "model", "agent", "max_turns", "max_price", "max_tokens", "time_limit", "output"):
+        for key in ("background", "alias", "model", "agent", "max_turns", "max_price", "max_tokens", "time_limit", "output"):
             v = getattr(ns, key)
             if v is not None and v is not False:
                 args[key] = v

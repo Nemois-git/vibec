@@ -78,7 +78,7 @@ mcp__delegate__delegate_doctor            # health check
 Or call the tool directly with arguments:
 
 ```text
-mcp__delegate__delegate_run(task="Summarize README.md", mode="smart", model="my-fast-model", max_price=2)
+mcp__delegate__delegate_run(task="Summarize README.md", model="my-fast-model", max_price=2)
 ```
 
 Suggested line for an org-level system prompt (so delegation is deterministic):
@@ -110,7 +110,7 @@ PY="$HOME/.claude/mcp/delegate_mcp.py"
 # project scope, from the repo root:
 # PY="$PWD/scripts/delegate_mcp.py"
 
-python3 "$PY" delegate "Summarize README.md" --mode smart --max-price 2
+python3 "$PY" delegate "Summarize README.md" --max-price 2
 python3 "$PY" delegate "Refactor the arg parsing..." --background --alias auth-refactor   # returns run/run_dir/pid immediately
 python3 "$PY" status                                     # running + finished runs + aliases
 python3 "$PY" wait auth-refactor --timeout 600           # wake-on-finish: blocks until .delegate/runs/<run>/meta.json appears
@@ -145,7 +145,6 @@ tool arguments / CLI flags  >  environment variables  >  .claude/delegate.env  >
 | Key | Default | Meaning |
 |---|---|---|
 | `DELEGATE_MODEL` | (empty) | Model alias passed to `vibe --model`. Define aliases in your own `~/.vibe/config.toml` (`[[models]]`); empty = Vibe's default routing. The repo never overrides your providers. |
-| `DELEGATE_MODE` | `smart` | Approve mode: `smart` or `auto`, see below. |
 | `DELEGATE_AGENT` | (empty) | Optional Vibe agent profile (`--agent`), e.g. a bounded profile in `~/.vibe/agents/`. |
 | `DELEGATE_MAX_TURNS` | `200` | Max assistant turns of the run (root + subagents). |
 | `DELEGATE_MAX_PRICE` | `10` | Max cumulative cost in USD. Note: `0` does **not** mean unlimited -- it stops the run before the next call once anything has cost money. Leave empty to omit the flag. |
@@ -156,14 +155,11 @@ tool arguments / CLI flags  >  environment variables  >  .claude/delegate.env  >
 
 The config file is parsed line-by-line (`KEY=VALUE`, `#` comments); it is never sourced or evaluated.
 
-## Approve modes (headless semantics)
+## Approval (headless semantics)
 
-Headless mode (`vibe -p`) never prompts. The mode decides which tool calls run; denied calls are printed on stderr and recorded in `export.json`.
+Headless mode (`vibe -p`) never prompts, and every run passes `--smart-approve`: a classifier auto-runs the tool calls it judges safe and denies the risky ones. Denied calls are printed in the run's `stderr.txt` and recorded in `export.json`. There is no blanket-approve mode, so a delegated run cannot widen its own permissions. The classifier model is configurable via `[utility_models] smart_approve` in `~/.vibe/config.toml`.
 
-| Mode | Flag passed to vibe | Behavior |
-|---|---|---|
-| `smart` (default) | `--smart-approve` | A classifier auto-runs the tool calls it judges safe; risky ones are denied and listed. Classifier model configurable via `[utility_models] smart_approve` in `~/.vibe/config.toml`. |
-| `auto` | `--auto-approve` (alias `--yolo`) | Approves every tool call. Allowlists are bypassed under auto-approve, so use it only for trusted tasks. |
+When a legitimate call is denied, narrow the task or grant exactly that capability with a bounded agent profile (`agent` / `DELEGATE_AGENT`, `[tools.bash] allowlist = [...]`); `--smart-approve` enforces allowlists instead of bypassing them.
 
 ## Monitoring and status
 
@@ -190,7 +186,7 @@ Logs stay on the machine (`.delegate/` is gitignored) and never enter version co
 
 ## Security notes
 
-- Headless runs never prompt. `smart` auto-approves only what its classifier judges safe; `auto` is a deliberate opt-in per run.
+- Headless runs never prompt and every run goes through the smart classifier, so a delegated run cannot grant itself blanket tool approval.
 - The repo's `.mcp.json` / `.claude/` files are trusted code once you open the repo in Claude Code -- review them like any other repo config. `enableAllProjectMcpServers` in `.claude/settings.json` auto-enables project MCP servers; drop it if you prefer approving each server manually.
 - The delegate config is parsed, never executed; the wrapper runs `vibe` with `--workdir` pinned to the repo and `--trust` scoped to that single invocation.
 - Budget guards (`--max-turns/--max-price/--max-tokens/--time-limit`) bound every run, root and subagents included.
@@ -203,7 +199,7 @@ Logs stay on the machine (`.delegate/` is gitignored) and never enter version co
 | `delegate` MCP server not listed | Open the repo root; check `.mcp.json`; remove `enableAllProjectMcpServers` if you want a manual approval prompt instead |
 | Tool call needs approval every time | Keep `.claude/settings.json` permissions for `mcp__delegate__*` |
 | Auth errors from vibe | Put `MISTRAL_API_KEY` in `~/.vibe/.env` or run `vibe --setup` |
-| `Tool call denied: ...` in the run's `stderr.txt` | The smart classifier judged the call risky. Re-run with `mode=auto` only for a trusted task, or narrow the task |
+| `Tool call denied: ...` in the run's `stderr.txt` | The smart classifier judged the call risky. Narrow the task, or grant that capability with a bounded agent profile (`DELEGATE_AGENT`), not a blanket approval |
 | Empty answer | A text run that ends without an answer says so on stderr -- read `stderr.txt` in the run dir |
 | Cost/turn overruns | Lower `DELEGATE_MAX_PRICE` / `DELEGATE_MAX_TURNS` in `.claude/delegate.env` |
 

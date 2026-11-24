@@ -51,7 +51,7 @@ def build_project():
     shutil.copy(SERVER_PATH, PROJ / "scripts" / "delegate_mcp.py")
     shutil.copy(REPO / ".mcp.json", PROJ / ".mcp.json")
     (PROJ / ".claude" / "delegate.env").write_text(
-        "# test config\nDELEGATE_MODE=smart\nthis line has no equals sign\n"
+        "# test config\nDELEGATE_MODEL=test-model\nthis line has no equals sign\n"
     )
 
 
@@ -179,7 +179,7 @@ class HandlerTests(ServerTestCase):
 class SyncDelegateTests(ServerTestCase):
     def test_flags_reach_wrapper_and_answer_is_returned(self):
         result = SERVER.call_delegate({
-            "task": "Reply SYNC_OK", "mode": "smart", "max_price": 0.5, "max_turns": 3,
+            "task": "Reply SYNC_OK", "max_price": 0.5, "max_turns": 3,
             "max_tokens": 100, "time_limit": 60, "output": "text", "agent": "a1", "model": "m1",
         })
         sc = result["structuredContent"]
@@ -373,14 +373,14 @@ class StatusTests(ServerTestCase):
 
 class CliTests(ServerTestCase):
     def test_delegate_sync_exits_zero(self):
-        code, result = run_cli("delegate", "CLI sync", "--mode", "smart", "--max-price", "0.5",
+        code, result = run_cli("delegate", "CLI sync", "--max-price", "0.5",
                                "--max-turns", "2", "--max-tokens", "50", "--time-limit", "60",
                                "--output", "json", "--agent", "a", "--model", "m", "--alias", "clisync")
         self.assertEqual(code, 0)
         self.assertIn("FAKE_ANSWER: CLI sync", result["structuredContent"]["answer"])
 
     def test_delegate_resume_exits_zero(self):
-        code, _ = run_cli("delegate", "CLI follow", "--session-id", "fake-session-1", "--mode", "smart")
+        code, _ = run_cli("delegate", "CLI follow", "--session-id", "fake-session-1")
         self.assertEqual(code, 0)
 
     def test_background_delegate_then_wait(self):
@@ -414,7 +414,7 @@ class CliTests(ServerTestCase):
 class ConfigAndResolutionTests(ServerTestCase):
     def test_config_file_skips_comments_and_malformed_lines(self):
         config = SERVER.config()
-        self.assertEqual(config.get("DELEGATE_MODE"), "smart")
+        self.assertEqual(config.get("DELEGATE_MODEL"), "test-model")
         self.assertNotIn("this line has no equals sign", config)
 
     def test_project_dir_from_cwd_with_scripts_dir(self):
@@ -503,18 +503,34 @@ class ErrorPathTests(ServerTestCase):
         self.assertTrue(result["isError"])
 
 
-class ModeAndDescriptionTests(ServerTestCase):
-    def test_mode_enum_offers_only_smart_and_auto(self):
-        self.assertEqual(SERVER.DELEGATE_SCHEMA["properties"]["mode"]["enum"], ["smart", "auto"])
+class ApprovalAndDescriptionTests(ServerTestCase):
+    def test_schema_has_no_mode_argument(self):
+        self.assertNotIn("mode", SERVER.DELEGATE_SCHEMA["properties"])
 
-    def test_wrapper_rejects_ask_mode(self):
-        result = SERVER.call_delegate({"task": "Reply ASK", "mode": "ask"})
-        self.assertTrue(result["isError"])
-        self.assertEqual(result["structuredContent"]["exit_code"], 2)
+    def test_run_passes_smart_approve_and_never_auto_approve(self):
+        result = SERVER.call_delegate({"task": "Reply FLAGS"})
+        self.assertFalse(result["isError"])
+        argv = (self.run_dir(result["structuredContent"]["run"]) / "argv.txt").read_text().split()
+        self.assertIn("--smart-approve", argv)
+        self.assertNotIn("--auto-approve", argv)
 
-    def test_cli_rejects_ask_mode(self):
+    def test_server_rejects_the_removed_mode_argument(self):
+        for mode in ("auto", "ask"):
+            result = SERVER.call_delegate({"task": "Reply MODE", "mode": mode})
+            self.assertTrue(result["isError"])
+            self.assertIn("--smart-approve", result["content"][0]["text"])
+
+    def test_cli_rejects_the_removed_mode_flag(self):
         with contextlib.redirect_stderr(io.StringIO()), self.assertRaises(SystemExit):
-            run_cli("delegate", "x", "--mode", "ask")
+            run_cli("delegate", "x", "--mode", "smart")
+
+    def test_wrapper_rejects_the_removed_mode_flag(self):
+        proc = subprocess.run(
+            ["bash", str(PROJ / "scripts" / "delegate.sh"), "--mode", "auto", "--", "x"],
+            capture_output=True, text=True, env={**os.environ, "DELEGATE_LOG_DIR": str(self.log_dir)},
+        )
+        self.assertEqual(proc.returncode, 2)
+        self.assertIn("--smart-approve", proc.stderr)
 
     def test_tool_descriptions_name_the_running_server_not_a_fixed_install(self):
         tools = rpc({"jsonrpc": "2.0", "id": 1, "method": "tools/list"})[0]["result"]["tools"]

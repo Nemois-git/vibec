@@ -14,7 +14,7 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PROJECT_DIR="${CLAUDE_PROJECT_DIR:-$(cd "$SCRIPT_DIR/.." && pwd)}"
 CONFIG_FILE="$PROJECT_DIR/.claude/delegate.env"
 
-MODE="" MODEL="" AGENT="" RESUME="" RUN_ID="" ALIAS="" MAX_TURNS="" MAX_PRICE="" MAX_TOKENS="" TIME_LIMIT="" OUTPUT="" LOG_DIR="" TASK_FILE="" DOCTOR=0
+MODEL="" AGENT="" RESUME="" RUN_ID="" ALIAS="" MAX_TURNS="" MAX_PRICE="" MAX_TOKENS="" TIME_LIMIT="" OUTPUT="" LOG_DIR="" TASK_FILE="" DOCTOR=0
 TASK=""
 
 usage() {
@@ -24,7 +24,6 @@ Usage: delegate.sh [options] -- "<task prompt>"
        delegate.sh --doctor
 
 Options:
-  --mode MODE       Approve mode: smart (default) | auto
   --model ALIAS     Vibe model alias (--model); empty = vibe default routing
   --agent NAME      Vibe agent profile (--agent), e.g. from ~/.vibe/agents/
   --resume ID       Resume existing Vibe session ID (--resume ID); the task is
@@ -47,7 +46,7 @@ Options:
   -h, --help        This help
 
 Config keys (file .claude/delegate.env or environment):
-  DELEGATE_MODE, DELEGATE_MODEL, DELEGATE_AGENT,
+  DELEGATE_MODEL, DELEGATE_AGENT,
   DELEGATE_MAX_TURNS, DELEGATE_MAX_PRICE, DELEGATE_MAX_TOKENS,
   DELEGATE_TIME_LIMIT, DELEGATE_OUTPUT, DELEGATE_LOG_DIR
   DELEGATE_META_FILE (internal: JSON run metadata path used by scripts/delegate_mcp.py)
@@ -121,16 +120,12 @@ run_task() {
   preview="$(printf '%s' "$TASK$TASK_FILE" | tr '\t\n\r"\\' '    ' | cut -c1-160)"
   alias_json="$(printf '%s' "$ALIAS" | tr -d '"\\')"
   printf '{"run":"%s","alias":"%s","wrapper_pid":%s,"started_at":"%s","mode":"%s","model":"%s","agent":"%s","resume":"%s","task_preview":"%s"}\n' \
-    "$ts" "$alias_json" "$$" "$(date -u +%Y-%m-%dT%H:%M:%SZ)" "$MODE" "${MODEL:-}" "${AGENT:-}" "${RESUME:-}" "$preview" \
+    "$ts" "$alias_json" "$$" "$(date -u +%Y-%m-%dT%H:%M:%SZ)" smart "${MODEL:-}" "${AGENT:-}" "${RESUME:-}" "$preview" \
     > "$run_dir/started.json"
 
   if [[ -n "$TASK_FILE" ]]; then args+=(--prompt-file "$TASK_FILE"); else args+=(-p "$TASK"); fi
   args+=(--workdir "$PROJECT_DIR" --trust --output "$OUTPUT" --output-dir "$run_dir")
-  case "$MODE" in
-    auto)  args+=(--auto-approve) ;;
-    smart) args+=(--smart-approve) ;;
-    *) echo "delegate: unknown --mode '$MODE' (expected smart|auto)" >&2; exit 2 ;;
-  esac
+  args+=(--smart-approve)
   [[ -n "$MODEL" ]] && args+=(--model "$MODEL")
   [[ -n "$AGENT" ]] && args+=(--agent "$AGENT")
   [[ -n "$RESUME" ]] && args+=(--resume "$RESUME")
@@ -151,22 +146,24 @@ run_task() {
   dur=$(( $(date +%s) - start ))
 
   printf '%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\n' \
-    "$ts" "$rc" "$dur" "$MODE" "${MODEL:-default}" "${AGENT:--}" "$MAX_TURNS" "$MAX_PRICE" "$preview" \
+    "$ts" "$rc" "$dur" smart "${MODEL:-default}" "${AGENT:--}" "$MAX_TURNS" "$MAX_PRICE" "$preview" \
     >> "$LOG_DIR_ABS/runs.log"
 
   if [[ -n "${DELEGATE_META_FILE:-}" ]]; then
     printf '{"run":"%s","alias":"%s","rc":%s,"duration_s":%s,"run_dir":"%s","mode":"%s","model":"%s","agent":"%s"}\n' \
-      "$ts" "$alias_json" "$rc" "$dur" "$run_dir" "$MODE" "${MODEL:-}" "${AGENT:-}" > "$DELEGATE_META_FILE"
+      "$ts" "$alias_json" "$rc" "$dur" "$run_dir" smart "${MODEL:-}" "${AGENT:-}" > "$DELEGATE_META_FILE"
   fi
 
   cat "$out"
-  echo "[delegate] rc=$rc duration=${dur}s mode=$MODE model=${MODEL:-default} run=$ts logs=$run_dir" >&2
+  echo "[delegate] rc=$rc duration=${dur}s mode=smart model=${MODEL:-default} run=$ts logs=$run_dir" >&2
   exit "$rc"
 }
 
 while [[ $# -gt 0 ]]; do
   case "$1" in
-    --mode) MODE="$2"; shift 2 ;;
+    --mode|--mode=*)
+      echo "delegate: --mode was removed; delegated runs always use --smart-approve" >&2
+      exit 2 ;;
     --model) MODEL="$2"; shift 2 ;;
     --agent) AGENT="$2"; shift 2 ;;
     --resume) RESUME="$2"; shift 2 ;;
@@ -188,7 +185,6 @@ while [[ $# -gt 0 ]]; do
 done
 TASK="$*"
 
-if [[ -z "$MODE" ]]; then MODE="${DELEGATE_MODE:-$(cfg_get "$CONFIG_FILE" DELEGATE_MODE || true)}"; fi
 if [[ -z "$MODEL" ]]; then MODEL="${DELEGATE_MODEL:-$(cfg_get "$CONFIG_FILE" DELEGATE_MODEL || true)}"; fi
 if [[ -z "$AGENT" ]]; then AGENT="${DELEGATE_AGENT:-$(cfg_get "$CONFIG_FILE" DELEGATE_AGENT || true)}"; fi
 if [[ -z "$MAX_TURNS" ]]; then MAX_TURNS="${DELEGATE_MAX_TURNS:-$(cfg_get "$CONFIG_FILE" DELEGATE_MAX_TURNS || true)}"; fi
@@ -198,7 +194,6 @@ if [[ -z "$TIME_LIMIT" ]]; then TIME_LIMIT="${DELEGATE_TIME_LIMIT:-$(cfg_get "$C
 if [[ -z "$OUTPUT" ]]; then OUTPUT="${DELEGATE_OUTPUT:-$(cfg_get "$CONFIG_FILE" DELEGATE_OUTPUT || true)}"; fi
 if [[ -z "$LOG_DIR" ]]; then LOG_DIR="${DELEGATE_LOG_DIR:-$(cfg_get "$CONFIG_FILE" DELEGATE_LOG_DIR || true)}"; fi
 
-: "${MODE:=smart}"
 : "${OUTPUT:=text}"
 : "${MAX_TURNS:=200}"
 : "${MAX_PRICE:=10}"

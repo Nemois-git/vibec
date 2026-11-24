@@ -22,12 +22,12 @@ A Claude Code custom subagent always runs on the session's model (`model: inheri
 
 - **Transport**: stdio, one JSON-RPC 2.0 message per line. Handles `initialize` (echoes the client's `protocolVersion`, advertises `capabilities.tools`), `ping`, `tools/list`, `tools/call`, ignores `notifications/*`, and answers unknown methods with `-32601` when they carry an id.
 - **Path resolution**: `PROJECT_DIR` = `$CLAUDE_PROJECT_DIR` (set by Claude Code); otherwise the current directory if it contains `scripts/delegate.sh`; otherwise the parent of the server's directory; otherwise the server's directory. The wrapper is resolved from `$DELEGATE_WRAPPER`, else `<project>/scripts/delegate.sh`, else next to the server script (user-level install layout).
-- **Execution**: `delegate_run` runs `bash scripts/delegate.sh --mode ... -- "<task>"` as a subprocess with `DELEGATE_META_FILE` pointing at a temp file. The wrapper writes one JSON line there (`run`, `rc`, `duration_s`, `run_dir`, `mode`, `model`, `agent`), which is how the server learns the run dir deterministically. The MCP-side subprocess timeout is `time_limit + 120s`.
+- **Execution**: `delegate_run` runs `bash scripts/delegate.sh -- "<task>"` as a subprocess with `DELEGATE_META_FILE` pointing at a temp file. The wrapper writes one JSON line there (`run`, `rc`, `duration_s`, `run_dir`, `mode`, `model`, `agent`), which is how the server learns the run dir deterministically. The MCP-side subprocess timeout is `time_limit + 120s`.
 - **Result**: the tool result's `structuredContent` merges the wrapper meta with the run's `export.json`: `answer`, `exit_code`, `duration_s`, `run`, `run_dir`, `mode`, `model`, `session_id`, `cost_usd`, `usage`, `outcome`, `stop_reason`, `vibe_version`, `stderr_tail`. `isError` is set when the run's exit code is non-zero.
 
 ### Tool schemas
 
-`delegate_run` (required: `task`): optional `background` (bool -- start detached and return immediately with run/run_dir/pid), `alias` (caller-chosen name registered in `.delegate/aliases.json`, so later tools can address the run by name), `session_id` (resume an existing session; the task is appended via `--resume`), `mode` (smart|auto), `model`, `agent`, `max_turns`, `max_price`, `max_tokens`, `time_limit`, `output` (text|json|streaming). Missing options fall back to env > `.claude/delegate.env` > defaults, exactly like the shell wrapper.
+`delegate_run` (required: `task`): optional `background` (bool -- start detached and return immediately with run/run_dir/pid), `alias` (caller-chosen name registered in `.delegate/aliases.json`, so later tools can address the run by name), `session_id` (resume an existing session; the task is appended via `--resume`), `model`, `agent`, `max_turns`, `max_price`, `max_tokens`, `time_limit`, `output` (text|json|streaming). Missing options fall back to env > `.claude/delegate.env` > defaults, exactly like the shell wrapper. `mode` is gone: a value other than `smart` is refused, because every run passes `--smart-approve`.
 
 `delegate_wait` (required: `run` or `alias`, optional `timeout_s` default 600): polls `runs/<run>/meta.json` until the background run finishes, then returns the same structured result as a synchronous `delegate_run` (answer from `stdout.txt`, plus `export.json` fields). Returns `status: "running"` on timeout.
 
@@ -69,7 +69,6 @@ delegate.sh --doctor
 
 | Flag | Maps to | Notes |
 |---|---|---|
-| `--mode smart\|auto` | `--smart-approve` / `--auto-approve` | Approve mode, see README. |
 | `--model ALIAS` | `--model ALIAS` | Alias from the user's `~/.vibe/config.toml` `[[models]]`. |
 | `--agent NAME` | `--agent NAME` | Agent profile, e.g. a bounded profile in `~/.vibe/agents/NAME.toml`. |
 | `--max-turns N` | `--max-turns N` | Assistant-turn budget (root + subagents). |
@@ -91,7 +90,7 @@ The wrapper always adds: `-p "<task>"` (or `--prompt-file`), `--workdir "$PROJEC
 
 Precedence: **tool args / CLI flags > environment variables > `.claude/delegate.env` > built-in default.**
 
-The config file is parsed as plain `KEY=VALUE` lines (`#` comments, CRLF tolerated); it is never sourced or evaluated. Recognized keys: `DELEGATE_MODE`, `DELEGATE_MODEL`, `DELEGATE_AGENT`, `DELEGATE_MAX_TURNS`, `DELEGATE_MAX_PRICE`, `DELEGATE_MAX_TOKENS`, `DELEGATE_TIME_LIMIT`, `DELEGATE_OUTPUT`, `DELEGATE_LOG_DIR`. Each has the same-named environment variable as its override. Built-in defaults: `smart`, empty model/agent, `200` turns, `10` USD, `3600` s, `text`, `.delegate`.
+The config file is parsed as plain `KEY=VALUE` lines (`#` comments, CRLF tolerated); it is never sourced or evaluated. Recognized keys: `DELEGATE_MODEL`, `DELEGATE_AGENT`, `DELEGATE_MAX_TURNS`, `DELEGATE_MAX_PRICE`, `DELEGATE_MAX_TOKENS`, `DELEGATE_TIME_LIMIT`, `DELEGATE_OUTPUT`, `DELEGATE_LOG_DIR`. Each has the same-named environment variable as its override. Built-in defaults: empty model/agent, `200` turns, `10` USD, `3600` s, `text`, `.delegate`. Approval is not configurable: every run passes `--smart-approve`.
 
 Per-user overrides without touching the shared file:
 
@@ -110,7 +109,7 @@ Each run appends one TSV line to `$LOG_DIR/runs.log`:
 |                |  |  |      |         |  +-- max_turns
 |                |  |  |      |         +-- agent ("-" when unset)
 |                |  |  |      +-- model ("default" when unset)
-|                |  |  +-- mode (smart|auto)
+|                |  |  +-- approve mode (always smart)
 |                |  +-- duration_s
 |                +-- exit code
 +-- timestamp
@@ -122,7 +121,7 @@ and creates `$LOG_DIR/runs/<timestamp>/` with `stdout.txt`, `stderr.txt`, `expor
 
 ## Extension points
 
-- **Bounded Vibe profiles**: create an agent profile in `~/.vibe/agents/NAME.toml` with `[tools.bash] allowlist = [...]` and pass it via `agent` / `DELEGATE_AGENT` / `--agent`. Under `--auto-approve`, allowlists are bypassed; under `smart` they are enforced.
+- **Bounded Vibe profiles**: create an agent profile in `~/.vibe/agents/NAME.toml` with `[tools.bash] allowlist = [...]` and pass it via `agent` / `DELEGATE_AGENT` / `--agent`. This is the only way to widen what a delegated run may do: every run passes `--smart-approve`, which enforces allowlists instead of bypassing them.
 - **Custom system prompt for delegated runs**: `vibe -p` supports `--system-prompt-file PATH`; add it to the wrapper's `args` if your team standardizes one.
 - **Tool narrowing**: `--enabled-tools` / `--disabled-tools` (repeatable) restrict what the delegated run may use.
 - **Isolated risky runs**: `vibe --worktree` runs the task in a separate git worktree under `$VIBE_HOME/worktrees`; the wrapper does not use it by default.
@@ -140,10 +139,10 @@ printf '%s\n' \
   | python3 scripts/delegate_mcp.py
 
 # 1. Smoke test through the wrapper (no tool calls, price cap)
-bash scripts/delegate.sh --mode smart --max-price 0.5 -- "Reply with exactly: OK"
+bash scripts/delegate.sh --max-price 0.5 -- "Reply with exactly: OK"
 
 # 2. Delegate a refactor through the wrapper directly
-bash scripts/delegate.sh --mode smart --max-turns 100 --max-price 5 -- \
+bash scripts/delegate.sh --max-turns 100 --max-price 5 -- \
   "Refactor scripts/ to use a shared parse_args helper. Acceptance: bash -n passes on all scripts. Do not touch .claude/."
 
 # 3. Long task from a file
@@ -159,7 +158,7 @@ jq '{vibe_version, usage, cost_usd, stop_reason, outcome, exit_code, session_id,
 ## FAQ
 
 **Q: Why a wrapper script at all if there is an MCP server?**
-A: One execution path for both shell/CI use and MCP use: config precedence, approve mode, budget guards, and logging live in exactly one place (`delegate.sh`). The MCP server is a thin JSON-RPC adapter that shells out to it and enriches the result with `export.json`.
+A: One execution path for both shell/CI use and MCP use: config precedence, the approval policy, budget guards, and logging live in exactly one place (`delegate.sh`). The MCP server is a thin JSON-RPC adapter that shells out to it and enriches the result with `export.json`.
 
 **Q: Can Claude Code monitor a run while it is in progress?**
 A: Yes -- start it with `background=true`, watch it in `delegate_status` (running section from `started.json`), or use `output: "streaming"` and tail `runs/<ts>/server.log`. You can also resume the session interactively with `vibe -c` / `vibe --resume <session_id>`.

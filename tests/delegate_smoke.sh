@@ -49,14 +49,14 @@ check "status returns valid JSON" $?
 
 # 5. Synchronous delegate: tiny real run, answer echoed back.
 alias_sync="smoke-sync-$(date +%s)"
-"$SRV" delegate "Reply with exactly: SMOKE_SYNC_OK" --mode smart --max-price 0.5 --alias "$alias_sync" > "$OUT" 2>/dev/null
+"$SRV" delegate "Reply with exactly: SMOKE_SYNC_OK" --max-price 0.5 --alias "$alias_sync" > "$OUT" 2>/dev/null
 check "sync delegate exits 0" $?
 /usr/bin/python3 -c 'import json; assert "SMOKE_SYNC_OK" in json.load(open("'"$OUT"'"))["structuredContent"]["answer"]'
 check "sync delegate answer is SMOKE_SYNC_OK" $?
 
 # 6. Background dispatch and wait-by-alias.
 alias_bg="smoke-bg-$(date +%s)"
-"$SRV" delegate "Reply with exactly: SMOKE_BG_OK" --mode smart --max-price 0.5 --background --alias "$alias_bg" > "$OUT" 2>/dev/null
+"$SRV" delegate "Reply with exactly: SMOKE_BG_OK" --max-price 0.5 --background --alias "$alias_bg" > "$OUT" 2>/dev/null
 check "background delegate exits 0" $?
 "$SRV" wait "$alias_bg" --timeout 300 > "$OUT" 2>/dev/null
 /usr/bin/python3 -c 'import json; d=json.load(open("'"$OUT"'"))["structuredContent"]; assert d.get("status")=="finished" and "SMOKE_BG_OK" in d["answer"]'
@@ -64,7 +64,7 @@ check "wait(by alias) returns SMOKE_BG_OK finished" $?
 
 # 7. Interrupt a long background run; wait still reports it as finished.
 alias_int="smoke-int-$(date +%s)"
-"$SRV" delegate "Count slowly from 1 to 1000000, one number per line. Never finish early." --mode smart --max-price 2.0 --background --alias "$alias_int" > "$OUT" 2>/dev/null
+"$SRV" delegate "Count slowly from 1 to 1000000, one number per line. Never finish early." --max-price 2.0 --background --alias "$alias_int" > "$OUT" 2>/dev/null
 check "long background delegate exits 0" $?
 sleep 4
 "$SRV" interrupt "$alias_int" --wait 30 > "$OUT" 2>/dev/null

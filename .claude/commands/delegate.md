@@ -1,13 +1,13 @@
 ---
 description: Delegate a task to the Vibe agent (mcp__delegate__delegate_run), then verify and report
-argument-hint: [--mode smart|auto] [--model ALIAS] [--max-turns N] [--max-price D] [--background] <task description>
+argument-hint: [--model ALIAS] [--max-turns N] [--max-price D] [--background] <task description>
 ---
 
 Call the MCP tool `mcp__delegate__delegate_run` for this task:
 
 $ARGUMENTS
 
-Parse leading --flags into the tool arguments (mode, model, max_turns, max_price, ...; --background sets background=true). The remaining text is the `task`: make it self-contained (goal, file paths, constraints, acceptance criteria), because Vibe cannot see this conversation.
+Parse leading --flags into the tool arguments (model, max_turns, max_price, ...; --background sets background=true). The remaining text is the `task`: make it self-contained (goal, file paths, constraints, acceptance criteria), because Vibe cannot see this conversation.
 
 For a long task, use background=true, keep working, and collect the result later with mcp__delegate__delegate_wait (alias or run).
 
